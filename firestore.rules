@@ -1,0 +1,380 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() && request.auth.token.email == 'alhawetyahmed81@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidNotificationUpdate(data) {
+      return data.keys().hasAll(['id', 'userId', 'type', 'titleAr', 'titleEn', 'isRead', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'type', 'titleAr', 'titleEn', 'bodyAr', 'bodyEn', 'orderId', 'isRead', 'createdAt'])
+        && data.userId is string && data.userId == request.auth.uid
+        && data.isRead is bool
+        && data.createdAt == existing().createdAt
+        && data.id == existing().id
+        && data.type == existing().type;
+    }
+
+    // Admins Registry
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isValidId(adminId) && ((isOwner(adminId) && isBootstrappedAdmin()) || isAdmin());
+      allow delete: if false;
+    }
+
+    // Users (PII isolated to owner or admin; role & status self-escalation blocked)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin() || (isSignedIn() && existing().uid == request.auth.uid);
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && incoming().uid == request.auth.uid
+        && incoming().status == 'ACTIVE'
+        && (incoming().role in ['CUSTOMER', 'TECHNICIAN'] || (incoming().role == 'ADMIN' && isBootstrappedAdmin()));
+      allow update: if isValidId(userId) && (
+        isAdmin() ||
+        (
+          isOwner(userId)
+          && incoming().uid == existing().uid
+          && incoming().role == existing().role
+          && incoming().status == existing().status
+        )
+      );
+      allow delete: if false;
+    }
+
+    // Customer Profiles (Private)
+    match /customer_profiles/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin() || (isSignedIn() && existing().uid == request.auth.uid);
+      allow create, update: if isValidId(userId) && (isOwner(userId) || isAdmin()) && incoming().uid == userId;
+      allow delete: if false;
+    }
+
+    // Technician Private Profiles (Contains KYC docs - strictly owner or admin)
+    match /technician_profiles/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin() || (isSignedIn() && existing().uid == request.auth.uid);
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && incoming().uid == userId
+        && incoming().verificationStatus in ['UNSUBMITTED', 'PENDING']
+        && incoming().subscriptionPlanId == 'FREE';
+      allow update: if isValidId(userId) && (
+        isAdmin() ||
+        (
+          isOwner(userId)
+          && incoming().uid == existing().uid
+          && (incoming().verificationStatus == existing().verificationStatus || incoming().verificationStatus == 'PENDING')
+        )
+      );
+      allow delete: if false;
+    }
+
+    // Technician Public Profiles (No PII; only approved technicians discoverable publicly)
+    match /technician_public_profiles/{userId} {
+      allow get: if isValidId(userId) && (existing().verificationStatus == 'APPROVED' || isOwner(userId) || isAdmin());
+      allow list: if existing().verificationStatus == 'APPROVED' || isAdmin();
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && incoming().uid == userId
+        && incoming().verificationStatus in ['UNSUBMITTED', 'PENDING']
+        && incoming().subscriptionPlanId == 'FREE';
+      allow update: if isValidId(userId) && (
+        isAdmin() ||
+        (
+          isOwner(userId)
+          && incoming().uid == existing().uid
+          && (incoming().verificationStatus == existing().verificationStatus || incoming().verificationStatus == 'PENDING')
+        ) ||
+        (
+          isSignedIn()
+          && incoming().uid == existing().uid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['ratingAvg', 'ratingCount', 'completedJobsCount', 'updatedAt'])
+        )
+      );
+      allow delete: if false;
+    }
+
+    // Service Categories (Public read catalog; admin writes)
+    match /services/{serviceId} {
+      allow get: if isValidId(serviceId);
+      allow list: if existing().isActive == true || isAdmin();
+      allow create, update, delete: if isValidId(serviceId) && isAdmin();
+    }
+
+    // Subscription Plans (Public read catalog; admin writes)
+    match /subscription_plans/{planId} {
+      allow get: if isValidId(planId);
+      allow list: if existing().isActive == true || isAdmin();
+      allow create, update, delete: if isValidId(planId) && isAdmin();
+    }
+
+    // Platform Settings & Public CMS Content
+    match /platform_settings/{settingId} {
+      allow get: if isValidId(settingId) && (settingId == 'public_cms' || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isValidId(settingId) && isAdmin();
+      allow delete: if false;
+    }
+
+    // Orders (Participant-isolated + open NEW/PENDING requests readable by signed-in users for quoting)
+    match /orders/{orderId} {
+      allow get: if isValidId(orderId) && isSignedIn() && (
+        isAdmin() ||
+        existing().customerId == request.auth.uid ||
+        existing().technicianId == request.auth.uid ||
+        existing().status in ['NEW', 'PENDING']
+      );
+      allow list: if isSignedIn() && (
+        isAdmin() ||
+        existing().customerId == request.auth.uid ||
+        existing().technicianId == request.auth.uid ||
+        existing().status in ['NEW', 'PENDING']
+      );
+      allow create: if isValidId(orderId)
+        && isSignedIn()
+        && incoming().customerId == request.auth.uid
+        && incoming().status == 'NEW';
+      allow update: if isValidId(orderId) && isSignedIn() && (
+        isAdmin() ||
+        existing().customerId == request.auth.uid ||
+        existing().technicianId == request.auth.uid ||
+        (
+          existing().status == 'NEW'
+          && incoming().status == 'PENDING'
+          && incoming().customerId == existing().customerId
+        )
+      );
+      allow delete: if false;
+
+      // Order Offers
+      match /offers/{offerId} {
+        allow get: if isValidId(orderId) && isValidId(offerId) && isSignedIn() && (
+          isAdmin() ||
+          existing().technicianId == request.auth.uid ||
+          existing().customerId == request.auth.uid
+        );
+        allow list: if isSignedIn() && (
+          isAdmin() ||
+          existing().technicianId == request.auth.uid ||
+          existing().customerId == request.auth.uid
+        );
+        allow create: if isValidId(orderId) && isValidId(offerId) && isSignedIn()
+          && incoming().technicianId == request.auth.uid
+          && incoming().status == 'PENDING';
+        allow update: if isValidId(orderId) && isValidId(offerId) && isSignedIn() && (
+          isAdmin() ||
+          existing().customerId == request.auth.uid
+        );
+        allow delete: if false;
+      }
+
+      // Order Status History
+      match /status_history/{historyId} {
+        allow get: if isValidId(orderId) && isValidId(historyId) && isSignedIn() && (
+          isAdmin() ||
+          existing().customerId == request.auth.uid ||
+          existing().technicianId == request.auth.uid
+        );
+        allow list: if isSignedIn() && (
+          isAdmin() ||
+          existing().customerId == request.auth.uid ||
+          existing().technicianId == request.auth.uid
+        );
+        allow create: if isValidId(orderId) && isValidId(historyId) && isSignedIn() && (
+          isAdmin() ||
+          incoming().customerId == request.auth.uid ||
+          incoming().technicianId == request.auth.uid ||
+          incoming().changedByUid == request.auth.uid
+        );
+        allow update, delete: if false;
+      }
+
+      // Order Messages
+      match /messages/{messageId} {
+        allow get: if isValidId(orderId) && isValidId(messageId) && isSignedIn() && (
+          isAdmin() ||
+          existing().customerId == request.auth.uid ||
+          existing().technicianId == request.auth.uid
+        );
+        allow list: if isSignedIn() && (
+          isAdmin() ||
+          existing().customerId == request.auth.uid ||
+          existing().technicianId == request.auth.uid
+        );
+        allow create: if isValidId(orderId) && isValidId(messageId) && isSignedIn()
+          && incoming().senderId == request.auth.uid
+          && (isAdmin() || incoming().customerId == request.auth.uid || incoming().technicianId == request.auth.uid);
+        allow update: if isValidId(orderId) && isValidId(messageId) && isSignedIn()
+          && (existing().customerId == request.auth.uid || existing().technicianId == request.auth.uid)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['readBy']);
+        allow delete: if false;
+      }
+    }
+
+    // Technician Live GPS Locations
+    match /technician_locations/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && (
+        isAdmin() ||
+        isOwner(userId) ||
+        existing().customerId == request.auth.uid
+      );
+      allow list: if isAdmin();
+      allow create, update: if isValidId(userId) && (isOwner(userId) || isAdmin()) && incoming().uid == userId;
+      allow delete: if false;
+    }
+
+    // Wallets (Owner read/spend, admin full access, customer order-settlement credit-only)
+    match /wallets/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin() || (isSignedIn() && existing().uid == request.auth.uid);
+      allow create: if isValidId(userId) && (
+        isAdmin() ||
+        (isOwner(userId) && incoming().uid == userId && incoming().balance == 0 && incoming().pendingBalance == 0)
+      );
+      allow update: if isValidId(userId) && (
+        isAdmin() ||
+        (isOwner(userId) && incoming().uid == existing().uid) ||
+        (
+          isSignedIn()
+          && incoming().uid == existing().uid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'totalEarned', 'currency', 'updatedAt'])
+          && incoming().balance >= existing().balance
+        )
+      );
+      allow delete: if false;
+    }
+
+    // Transactions
+    match /transactions/{txId} {
+      allow get: if isValidId(txId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(txId) && isSignedIn() && (
+        isAdmin() ||
+        incoming().uid == request.auth.uid ||
+        incoming().type == 'EARNING' ||
+        (incoming().type == 'PAYMENT' && incoming().provider == 'CASH')
+      );
+      allow update: if isValidId(txId) && isAdmin();
+      allow delete: if false;
+    }
+
+    // Commissions
+    match /commissions/{commissionId} {
+      allow get: if isValidId(commissionId) && isSignedIn() && (existing().technicianId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().technicianId == request.auth.uid || isAdmin());
+      allow create: if isValidId(commissionId) && isSignedIn();
+      allow update, delete: if false;
+    }
+
+    // Invoices
+    match /invoices/{invoiceId} {
+      allow get: if isValidId(invoiceId) && isSignedIn() && (
+        existing().customerId == request.auth.uid ||
+        existing().technicianId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().customerId == request.auth.uid ||
+        existing().technicianId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isValidId(invoiceId) && isSignedIn() && (
+        isAdmin() ||
+        incoming().customerId == request.auth.uid ||
+        (incoming().technicianId == request.auth.uid && incoming().paymentProvider == 'CASH')
+      );
+      allow update, delete: if false;
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(notificationId) && isSignedIn();
+      allow update: if isValidId(notificationId) && isSignedIn() && (
+        isAdmin() ||
+        (
+          existing().userId == request.auth.uid
+          && isValidNotificationUpdate(incoming())
+          && incoming().diff(existing()).affectedKeys().hasOnly(['isRead'])
+        )
+      );
+      allow delete: if false;
+    }
+
+    // Reviews
+    match /reviews/{reviewId} {
+      allow get: if isValidId(reviewId);
+      allow list: if existing().rating >= 1;
+      allow create: if isValidId(reviewId) && isSignedIn() && incoming().customerId == request.auth.uid && incoming().rating >= 1 && incoming().rating <= 5;
+      allow update: if false;
+      allow delete: if isValidId(reviewId) && isAdmin();
+    }
+
+    // Complaints
+    match /complaints/{complaintId} {
+      allow get: if isValidId(complaintId) && isSignedIn() && (existing().reporterId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().reporterId == request.auth.uid || isAdmin());
+      allow create: if isValidId(complaintId) && isSignedIn() && incoming().reporterId == request.auth.uid;
+      allow update: if isValidId(complaintId) && isAdmin();
+      allow delete: if false;
+    }
+
+    // Contact Form Submissions (Public submit; admin read/manage)
+    match /contact_messages/{msgId} {
+      allow create: if isValidId(msgId);
+      allow get, list, update, delete: if isValidId(msgId) && isAdmin();
+    }
+
+    // Admin Audit Logs
+    match /admin_logs/{logId} {
+      allow get: if isValidId(logId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(logId) && isAdmin();
+      allow update, delete: if false;
+    }
+
+    // Connection Test Doc
+    match /test/connection {
+      allow get: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

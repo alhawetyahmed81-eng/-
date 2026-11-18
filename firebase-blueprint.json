@@ -1,0 +1,442 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Core user identity record linked to Firebase Authentication UID with server-controlled role and account status.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 32 },
+        "role": { "type": "string", "enum": ["CUSTOMER", "TECHNICIAN", "ADMIN"] },
+        "status": { "type": "string", "enum": ["ACTIVE", "SUSPENDED"] },
+        "fcmToken": { "type": "string", "maxLength": 512 },
+        "preferredLang": { "type": "string", "enum": ["ar", "en"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "name", "role", "status", "createdAt", "updatedAt"]
+    },
+    "CustomerProfile": {
+      "title": "CustomerProfile",
+      "description": "Private customer profile containing saved address, coordinates, and favorite technician IDs.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "address": { "type": "string", "maxLength": 300 },
+        "city": { "type": "string", "maxLength": 100 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "favoriteTechnicianIds": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "updatedAt"]
+    },
+    "TechnicianPrivateProfile": {
+      "title": "TechnicianPrivateProfile",
+      "description": "Private technician onboarding and KYC verification profile containing identity documents.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "bio": { "type": "string", "maxLength": 1500 },
+        "nationalIdNumber": { "type": "string", "maxLength": 64 },
+        "nationalIdDocUrl": { "type": "string", "maxLength": 512 },
+        "certificateDocUrl": { "type": "string", "maxLength": 512 },
+        "verificationStatus": { "type": "string", "enum": ["UNSUBMITTED", "PENDING", "APPROVED", "REJECTED"] },
+        "rejectionReason": { "type": "string", "maxLength": 500 },
+        "specialtyIds": { "type": "array" },
+        "serviceAreas": { "type": "array" },
+        "workingHours": { "type": "object" },
+        "subscriptionPlanId": { "type": "string", "enum": ["FREE", "PRO", "PREMIUM"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "verificationStatus", "subscriptionPlanId", "updatedAt"]
+    },
+    "TechnicianPublicProfile": {
+      "title": "TechnicianPublicProfile",
+      "description": "Publicly discoverable technician card profile without PII or KYC documents.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "bio": { "type": "string", "maxLength": 1500 },
+        "specialtyIds": { "type": "array" },
+        "serviceAreas": { "type": "array" },
+        "workingHours": { "type": "object" },
+        "verificationStatus": { "type": "string", "enum": ["APPROVED"] },
+        "subscriptionPlanId": { "type": "string", "enum": ["FREE", "PRO", "PREMIUM"] },
+        "ratingAvg": { "type": "number" },
+        "ratingCount": { "type": "integer" },
+        "completedJobsCount": { "type": "integer" },
+        "isAvailable": { "type": "boolean" },
+        "baseLat": { "type": "number" },
+        "baseLng": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "verificationStatus", "subscriptionPlanId", "ratingAvg", "ratingCount", "completedJobsCount", "isAvailable", "updatedAt"]
+    },
+    "ServiceCategory": {
+      "title": "ServiceCategory",
+      "description": "InteriorX service category managed by administrators.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "slug": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9\\-]+$" },
+        "nameAr": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "nameEn": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "descriptionAr": { "type": "string", "maxLength": 1000 },
+        "descriptionEn": { "type": "string", "maxLength": 1000 },
+        "iconName": { "type": "string", "maxLength": 64 },
+        "imageUrl": { "type": "string", "maxLength": 512 },
+        "basePrice": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "sortOrder": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "slug", "nameAr", "nameEn", "isActive", "sortOrder", "updatedAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Service request order with strict server-enforced lifecycle states.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customerName": { "type": "string", "maxLength": 120 },
+        "technicianId": { "type": "string", "maxLength": 128 },
+        "technicianName": { "type": "string", "maxLength": 120 },
+        "serviceId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "serviceNameAr": { "type": "string", "maxLength": 120 },
+        "serviceNameEn": { "type": "string", "maxLength": 120 },
+        "title": { "type": "string", "minLength": 3, "maxLength": 200 },
+        "description": { "type": "string", "minLength": 5, "maxLength": 3000 },
+        "address": { "type": "string", "minLength": 3, "maxLength": 300 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "scheduledAt": { "type": "string", "format": "date-time" },
+        "budgetEstimate": { "type": "number" },
+        "finalPrice": { "type": "number" },
+        "pendingPriceRevision": { "type": "object" },
+        "mediaUrls": { "type": "array" },
+        "status": { "type": "string", "enum": ["NEW", "PENDING", "ACCEPTED", "TECHNICIAN_ON_THE_WAY", "IN_PROGRESS", "COMPLETED", "PAID", "CANCELLED"] },
+        "acceptedOfferId": { "type": "string", "maxLength": 128 },
+        "cashPaymentPending": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "customerId", "serviceId", "title", "description", "address", "lat", "lng", "scheduledAt", "status", "createdAt", "updatedAt"]
+    },
+    "OrderOffer": {
+      "title": "OrderOffer",
+      "description": "Technician price quotation submitted for a specific order.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "technicianId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "technicianName": { "type": "string", "maxLength": 120 },
+        "amount": { "type": "number" },
+        "estimatedDays": { "type": "integer" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["PENDING", "ACCEPTED", "REJECTED", "CLOSED"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderId", "technicianId", "amount", "status", "createdAt"]
+    },
+    "OrderStatusHistory": {
+      "title": "OrderStatusHistory",
+      "description": "Immutable audit log of order status transitions.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "fromStatus": { "type": "string", "maxLength": 40 },
+        "toStatus": { "type": "string", "maxLength": 40 },
+        "changedByUid": { "type": "string", "maxLength": 128 },
+        "changedByRole": { "type": "string", "enum": ["CUSTOMER", "TECHNICIAN", "ADMIN", "SYSTEM"] },
+        "note": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderId", "toStatus", "changedByUid", "changedByRole", "createdAt"]
+    },
+    "OrderMessage": {
+      "title": "OrderMessage",
+      "description": "Real-time chat message between customer and technician inside an order.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 120 },
+        "senderRole": { "type": "string", "enum": ["CUSTOMER", "TECHNICIAN", "ADMIN"] },
+        "text": { "type": "string", "maxLength": 2000 },
+        "imageUrl": { "type": "string", "maxLength": 512 },
+        "readBy": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderId", "senderId", "senderRole", "createdAt"]
+    },
+    "TechnicianLocation": {
+      "title": "TechnicianLocation",
+      "description": "Real-time technician GPS coordinates shared during active dispatch.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "activeOrderId": { "type": "string", "maxLength": 128 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "lat", "lng", "updatedAt"]
+    },
+    "Wallet": {
+      "title": "Wallet",
+      "description": "Server-authoritative wallet balance for customers and technicians.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "balance": { "type": "number" },
+        "pendingBalance": { "type": "number" },
+        "totalEarned": { "type": "number" },
+        "totalSpent": { "type": "number" },
+        "currency": { "type": "string", "maxLength": 8 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "balance", "currency", "updatedAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Immutable financial transaction ledger entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "orderId": { "type": "string" },
+        "type": { "type": "string", "enum": ["TOPUP", "PAYMENT", "EARNING", "COMMISSION", "WITHDRAWAL", "SUBSCRIPTION"] },
+        "amount": { "type": "number" },
+        "provider": { "type": "string", "enum": ["PAYMOB", "FAWRY", "WALLET", "CASH", "BANK_TRANSFER", "SYSTEM"] },
+        "status": { "type": "string", "enum": ["PENDING", "VERIFIED", "FAILED", "REJECTED"] },
+        "externalRef": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "uid", "type", "amount", "provider", "status", "createdAt"]
+    },
+    "Commission": {
+      "title": "Commission",
+      "description": "Platform commission record computed server-side upon order payment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "technicianId": { "type": "string" },
+        "grossAmount": { "type": "number" },
+        "ratePercent": { "type": "number" },
+        "commissionAmount": { "type": "number" },
+        "technicianNetAmount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderId", "technicianId", "grossAmount", "ratePercent", "commissionAmount", "createdAt"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Official financial invoice issued after verified order payment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "orderId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "technicianId": { "type": "string" },
+        "subtotal": { "type": "number" },
+        "platformFee": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentProvider": { "type": "string" },
+        "status": { "type": "string", "enum": ["ISSUED", "PAID"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "invoiceNumber", "orderId", "customerId", "total", "status", "createdAt"]
+    },
+    "SubscriptionPlan": {
+      "title": "SubscriptionPlan",
+      "description": "Configurable technician membership tier (FREE, PRO, PREMIUM).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "enum": ["FREE", "PRO", "PREMIUM"] },
+        "nameAr": { "type": "string" },
+        "nameEn": { "type": "string" },
+        "monthlyPrice": { "type": "number" },
+        "priorityWeight": { "type": "integer" },
+        "featuresAr": { "type": "array" },
+        "featuresEn": { "type": "array" },
+        "isActive": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nameAr", "nameEn", "monthlyPrice", "priorityWeight", "isActive", "updatedAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Real-time user notification event.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "titleAr": { "type": "string" },
+        "titleEn": { "type": "string" },
+        "bodyAr": { "type": "string" },
+        "bodyEn": { "type": "string" },
+        "orderId": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "type", "titleAr", "titleEn", "isRead", "createdAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Verified customer rating and review for a paid order.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "technicianId": { "type": "string" },
+        "rating": { "type": "integer" },
+        "comment": { "type": "string", "maxLength": 1500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderId", "customerId", "technicianId", "rating", "createdAt"]
+    },
+    "Complaint": {
+      "title": "Complaint",
+      "description": "Customer or technician dispute/complaint linked to an order.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "reporterId": { "type": "string" },
+        "reporterRole": { "type": "string", "enum": ["CUSTOMER", "TECHNICIAN"] },
+        "subject": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "status": { "type": "string", "enum": ["OPEN", "IN_REVIEW", "RESOLVED", "DISMISSED"] },
+        "adminResolution": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "reporterId", "reporterRole", "subject", "description", "status", "createdAt", "updatedAt"]
+    },
+    "AdminLog": {
+      "title": "AdminLog",
+      "description": "Immutable administrative audit log entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adminUid": { "type": "string" },
+        "adminEmail": { "type": "string" },
+        "action": { "type": "string" },
+        "targetCollection": { "type": "string" },
+        "targetId": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "adminUid", "action", "createdAt"]
+    },
+    "PlatformSetting": {
+      "title": "PlatformSetting",
+      "description": "Global platform configuration including commission rate and public CMS content.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "commissionRatePercent": { "type": "number" },
+        "supportEmail": { "type": "string" },
+        "supportPhone": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Private user account records with PII isolated to owner and admin."
+    },
+    "/customer_profiles/{userId}": {
+      "schema": { "$ref": "#/entities/CustomerProfile" },
+      "description": "Private customer address and favorites."
+    },
+    "/technician_profiles/{userId}": {
+      "schema": { "$ref": "#/entities/TechnicianPrivateProfile" },
+      "description": "Private technician KYC verification documents and settings."
+    },
+    "/technician_public_profiles/{userId}": {
+      "schema": { "$ref": "#/entities/TechnicianPublicProfile" },
+      "description": "Public verified technician marketplace listings without PII."
+    },
+    "/services/{serviceId}": {
+      "schema": { "$ref": "#/entities/ServiceCategory" },
+      "description": "Service categories available on InteriorX."
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Service orders."
+    },
+    "/orders/{orderId}/offers/{offerId}": {
+      "schema": { "$ref": "#/entities/OrderOffer" },
+      "description": "Price quotes submitted for an order."
+    },
+    "/orders/{orderId}/status_history/{historyId}": {
+      "schema": { "$ref": "#/entities/OrderStatusHistory" },
+      "description": "Audit log of order status transitions."
+    },
+    "/orders/{orderId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/OrderMessage" },
+      "description": "Order-scoped chat messages."
+    },
+    "/technician_locations/{userId}": {
+      "schema": { "$ref": "#/entities/TechnicianLocation" },
+      "description": "Live GPS location of technicians during active dispatch."
+    },
+    "/wallets/{userId}": {
+      "schema": { "$ref": "#/entities/Wallet" },
+      "description": "Server-managed user wallet balances."
+    },
+    "/transactions/{txId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Server-managed financial transaction records."
+    },
+    "/commissions/{commissionId}": {
+      "schema": { "$ref": "#/entities/Commission" },
+      "description": "Server-managed platform commissions."
+    },
+    "/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/Invoice" },
+      "description": "Server-managed invoices."
+    },
+    "/subscription_plans/{planId}": {
+      "schema": { "$ref": "#/entities/SubscriptionPlan" },
+      "description": "Technician subscription tiers."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "User notifications."
+    },
+    "/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/Review" },
+      "description": "Verified order reviews."
+    },
+    "/complaints/{complaintId}": {
+      "schema": { "$ref": "#/entities/Complaint" },
+      "description": "Order complaints and disputes."
+    },
+    "/admin_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AdminLog" },
+      "description": "Immutable admin audit logs."
+    },
+    "/platform_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/PlatformSetting" },
+      "description": "Global platform configuration and CMS copy."
+    }
+  }
+}

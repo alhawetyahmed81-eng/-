@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">InteriorX</string>
+    <string name="title_activity_main">InteriorX</string>
+    <string name="package_name">com.interiorx.app</string>
+    <string name="custom_url_scheme">com.interiorx.app</string>
+</resources>
